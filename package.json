@@ -1,0 +1,35 @@
+{
+  "name": "cripto-ticker-pro",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "API e SDK Oficial de Cotações Cripto em Tempo Real (USD e BRL), Gas Tracker, Conversor de Paridades e Sparklines SVG na borda Cloudflare Anycast (<2ms).",
+  "main": "cripto-ticker-pro.js",
+  "module": "cripto-ticker-pro.js",
+  "types": "types/index.d.ts",
+  "scripts": {
+    "test": "node test.js",
+    "deploy": "wrangler deploy",
+    "security:check": "node scripts/security-guard.js"
+  },
+  "keywords": [
+    "cripto",
+    "crypto",
+    "bitcoin",
+    "ethereum",
+    "solana",
+    "gas-tracker",
+    "gwei",
+    "sparkline",
+    "fear-and-greed",
+    "cotacoes",
+    "cloudflare-worker",
+    "anycast",
+    "sdk"
+  ],
+  "author": "clepta2 <clepta2@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clepta2/cripto-ticker-pro.git"
+  }
+}
