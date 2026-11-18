@@ -1,4 +1,4 @@
-/**
+﻿/**
  * worker.js — Cloudflare Worker Anycast para Cripto Ticker Pro API
  *
  * @license MIT
@@ -8,12 +8,15 @@
 import {
   listarCriptos,
   consultarCripto,
-  obterGasTracker,
+  obterGasTrackerReal,
   converterParidade,
-  obterSentimentoEDominancia,
+  obterFearAndGreed,
+  obterDominanciaGlobal,
   renderCriptoCardSvg,
-  CRIPTO_DATABASE
+  ATIVOS_SUPORTADOS,
+  FONTES_INFO
 } from './cripto-engine.js';
+import { ErroFonte, ErroRequisicao } from './cache.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -120,7 +123,7 @@ function aplicarRateLimit(keyId, config) {
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, env = {}, ctx = {}, fetchImpl) {
     const t0 = performance.now();
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/$/, '') || '/';
@@ -129,14 +132,14 @@ export default {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
-    const { plano, keyId, config, isAnonymous } = resolverPlanoEChave(request);
+    const { plano, keyId, config } = resolverPlanoEChave(request);
     const rateCheck = aplicarRateLimit(keyId, config);
 
     if (!rateCheck.ok) {
       return new Response(JSON.stringify(rateCheck, null, 2), {
         status: 429,
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json; charset=utf-8',
           'Retry-After': String(rateCheck.resetEmSegundos || 60),
           ...CORS_HEADERS
         }
@@ -150,102 +153,159 @@ export default {
       'x-cripto-edge-latency': `${Math.max(1, Math.round(performance.now() - t0))}ms`
     };
 
-    // 1. HEALTHCHECK
-    if (path === '/' || path === '/health' || path === '/status' || path === '/api/cripto/health') {
+    try {
+      // 1. HEALTHCHECK
+      if (path === '/' || path === '/health' || path === '/status' || path === '/api/cripto/health') {
+        return new Response(JSON.stringify({
+          ok: true,
+          servico: 'Cripto Ticker Pro API — Anycast Crypto Price & Gas Engine',
+          versao: '2.0.0',
+          borda: 'Cloudflare Workers Anycast (cache na borda)',
+          uptimeSegundos: Math.floor((Date.now() - BOOT_TIME) / 1000),
+          planoAtivo: config.nome,
+          totalAtivosMonitorados: ATIVOS_SUPORTADOS.length,
+          recursos: [
+            'Cotações de Criptoativos via CoinGecko com Câmbio Oficial BCB PTAX',
+            'Gas & Network Fee Tracker (Ethereum RPC e Bitcoin mempool.space)',
+            'Conversor de Paridades Cruzadas Cripto ⇄ Fiat e Cripto ⇄ Cripto',
+            'Sentimento de Mercado (Alternative.me Fear & Greed Index) & Dominância Global',
+            'Renderizador Vetorial SVG de Sparkline 7 Dias'
+          ]
+        }, null, 2), {
+          headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS, ...rateHeaders }
+        });
+      }
+
+      // 2. FONTES E DOCUMENTAÇÃO DE DADOS
+      if (path === '/api/cripto/fontes') {
+        return new Response(JSON.stringify({
+          ok: true,
+          fontes: FONTES_INFO
+        }, null, 2), {
+          headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS, ...rateHeaders }
+        });
+      }
+
+      // 3. LISTA DE ATIVOS (/api/cripto/ativos)
+      if (path === '/api/cripto/ativos' || path === '/api/cripto/todos') {
+        const cat = url.searchParams.get('categoria');
+        const lista = await listarCriptos(cat, env, ctx, fetchImpl);
+        return new Response(JSON.stringify(lista, null, 2), {
+          headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS, ...rateHeaders }
+        });
+      }
+
+      // 4. GAS & NETWORK FEE TRACKER (/api/cripto/gas)
+      if (path === '/api/cripto/gas' || path === '/api/cripto/taxas') {
+        const gas = await obterGasTrackerReal(env, ctx, fetchImpl);
+        return new Response(JSON.stringify(gas, null, 2), {
+          headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS, ...rateHeaders }
+        });
+      }
+
+      // 5. SENTIMENTO & FEAR AND GREED INDEX (/api/cripto/sentimento)
+      if (path === '/api/cripto/sentimento' || path === '/api/cripto/fear-greed') {
+        const [fng, dom] = await Promise.all([
+          obterFearAndGreed(ctx, fetchImpl),
+          obterDominanciaGlobal(env, ctx, fetchImpl).catch(() => null)
+        ]);
+
+        return new Response(JSON.stringify({
+          ok: true,
+          fearAndGreedIndex: fng.dados,
+          desatualizado: fng.desatualizado,
+          idadeSegundos: fng.idadeSegundos,
+          dominanciaGlobal: dom?.dados?.dominancia || null,
+          ativosMonitoradosGlobal: dom?.dados?.ativosMonitoradosGlobal || null
+        }, null, 2), {
+          headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS, ...rateHeaders }
+        });
+      }
+
+      // 6. CONVERSOR DE PARIDADES (/api/cripto/converter)
+      if (path === '/api/cripto/converter') {
+        const qtd = url.searchParams.get('qtd') || url.searchParams.get('quantidade') || '1';
+        const de = url.searchParams.get('de') || 'btc';
+        const para = url.searchParams.get('para') || 'brl';
+
+        const conversao = await converterParidade(qtd, de, para, env, ctx, fetchImpl);
+        return new Response(JSON.stringify(conversao, null, 2), {
+          headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS, ...rateHeaders }
+        });
+      }
+
+      // 7. CARD VETORIAL SVG COM SPARKLINE (/api/cripto/card/:simbolo.svg)
+      const matchSvg = path.match(/^\/api\/cripto\/card\/([a-zA-Z0-9\-]+)\.svg$/i) || path.match(/^\/api\/cripto\/([a-zA-Z0-9\-]+)\.svg$/i);
+      if (matchSvg) {
+        const sym = matchSvg[1];
+        const svg = await renderCriptoCardSvg(sym, env, ctx, fetchImpl);
+        return new Response(svg, {
+          headers: {
+            'Content-Type': 'image/svg+xml; charset=utf-8',
+            'Cache-Control': 'public, max-age=60',
+            ...CORS_HEADERS,
+            ...rateHeaders
+          }
+        });
+      }
+
+      // 8. COTAÇÃO INDIVIDUAL (/api/cripto/cotacao/:simbolo ou /api/cripto/:simbolo)
+      const matchSym = path.match(/^\/api\/cripto\/cotacao\/([a-zA-Z0-9\-]+)$/i) || path.match(/^\/api\/cripto\/([a-zA-Z0-9\-]+)$/i);
+      if (matchSym) {
+        const sym = matchSym[1];
+        const cotacao = await consultarCripto(sym, env, ctx, fetchImpl);
+        return new Response(JSON.stringify(cotacao, null, 2), {
+          status: cotacao.ok ? 200 : 404,
+          headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS, ...rateHeaders }
+        });
+      }
+
+      // 404
       return new Response(JSON.stringify({
-        ok: true,
-        servico: 'Cripto Ticker Pro API — Anycast Crypto Price & Gas Engine',
-        versao: '1.0.0',
-        borda: 'Cloudflare Workers Anycast (<2ms)',
-        uptimeSegundos: Math.floor((Date.now() - BOOT_TIME) / 1000),
-        planoAtivo: config.nome,
-        totalAtivosMonitorados: Object.keys(CRIPTO_DATABASE).length,
-        recursos: [
-          'Cotações de Criptoativos em Tempo Real (USD e BRL)',
-          'Gas & Network Fee Tracker (Ethereum, Bitcoin e Solana)',
-          'Conversor de Paridades Cruzadas Cripto ⇄ Fiat e Cripto ⇄ Cripto',
-          'Sentimento de Mercado & Fear and Greed Index',
-          'Renderizador Vetorial SVG de Sparkline 7 Dias'
-        ]
+        ok: false,
+        erro: 'ROTA_NAO_ENCONTRADA',
+        mensagem: `Rota "${path}" não encontrada.`
       }, null, 2), {
+        status: 404,
         headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS, ...rateHeaders }
       });
-    }
 
-    // 2. LISTA DE ATIVOS (/api/cripto/ativos)
-    if (path === '/api/cripto/ativos' || path === '/api/cripto/todos') {
-      const cat = url.searchParams.get('categoria');
-      const lista = listarCriptos(cat);
+    } catch (err) {
+      if (err instanceof ErroRequisicao) {
+        return new Response(JSON.stringify({
+          ok: false,
+          erro: err.codigo,
+          mensagem: err.message,
+          ...err.extra
+        }, null, 2), {
+          status: err.status,
+          headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS, ...rateHeaders }
+        });
+      }
+
+      if (err instanceof ErroFonte) {
+        const headers = { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS, ...rateHeaders };
+        if (err.retryAfterSegundos) headers['Retry-After'] = String(err.retryAfterSegundos);
+        return new Response(JSON.stringify({
+          ok: false,
+          erro: err.codigo,
+          fonte: err.fonte,
+          detalhe: err.detalhe,
+          mensagem: err.message
+        }, null, 2), {
+          status: 503,
+          headers
+        });
+      }
+
       return new Response(JSON.stringify({
-        ok: true,
-        totalAtivos: lista.length,
-        ativos: lista
+        ok: false,
+        erro: 'ERRO_INTERNO',
+        mensagem: err?.message || 'Erro inesperado na execução'
       }, null, 2), {
+        status: 500,
         headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS, ...rateHeaders }
       });
     }
-
-    // 3. GAS & NETWORK FEE TRACKER (/api/cripto/gas)
-    if (path === '/api/cripto/gas' || path === '/api/cripto/taxas') {
-      const gas = obterGasTracker();
-      return new Response(JSON.stringify(gas, null, 2), {
-        headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS, ...rateHeaders }
-      });
-    }
-
-    // 4. SENTIMENTO & FEAR AND GREED INDEX (/api/cripto/sentimento)
-    if (path === '/api/cripto/sentimento' || path === '/api/cripto/fear-greed') {
-      const sent = obterSentimentoEDominancia();
-      return new Response(JSON.stringify(sent, null, 2), {
-        headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS, ...rateHeaders }
-      });
-    }
-
-    // 5. CONVERSOR DE PARIDADES (/api/cripto/converter)
-    if (path === '/api/cripto/converter') {
-      const qtd = url.searchParams.get('qtd') || url.searchParams.get('quantidade') || '1';
-      const de = url.searchParams.get('de') || 'btc';
-      const para = url.searchParams.get('para') || 'brl';
-
-      const conversao = converterParidade(qtd, de, para);
-      return new Response(JSON.stringify(conversao, null, 2), {
-        status: conversao.ok ? 200 : 400,
-        headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS, ...rateHeaders }
-      });
-    }
-
-    // 6. CARD VETORIAL SVG COM SPARKLINE (/api/cripto/card/:simbolo.svg)
-    const matchSvg = path.match(/^\/api\/cripto\/card\/([a-zA-Z0-9\-]+)\.svg$/i) || path.match(/^\/api\/cripto\/([a-zA-Z0-9\-]+)\.svg$/i);
-    if (matchSvg) {
-      const sym = matchSvg[1];
-      const svg = renderCriptoCardSvg(sym);
-      return new Response(svg, {
-        headers: {
-          'Content-Type': 'image/svg+xml; charset=utf-8',
-          'Cache-Control': 'public, max-age=60',
-          ...CORS_HEADERS,
-          ...rateHeaders
-        }
-      });
-    }
-
-    // 7. COTAÇÃO INDIVIDUAL (/api/cripto/cotacao/:simbolo ou /api/cripto/:simbolo)
-    const matchSym = path.match(/^\/api\/cripto\/cotacao\/([a-zA-Z0-9\-]+)$/i) || path.match(/^\/api\/cripto\/([a-zA-Z0-9\-]+)$/i);
-    if (matchSym) {
-      const sym = matchSym[1];
-      const cotacao = consultarCripto(sym);
-      return new Response(JSON.stringify(cotacao, null, 2), {
-        status: cotacao.ok ? 200 : 404,
-        headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS, ...rateHeaders }
-      });
-    }
-
-    // Default: Lista de principais
-    return new Response(JSON.stringify({
-      ok: true,
-      ativosPrincipais: listarCriptos().slice(0, 5)
-    }, null, 2), {
-      headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS, ...rateHeaders }
-    });
   }
 };

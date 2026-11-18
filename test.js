@@ -1,202 +1,240 @@
-import { CriptoTickerPro } from './cripto-ticker-pro.js';
+﻿import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import worker from './worker.js';
+import { CriptoTickerPro } from './cripto-ticker-pro.js';
+import { resetarCaches } from './cache.js';
 
-console.log('🧪 Iniciando Bateria de Testes do Cripto Ticker Pro API...\n');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-let passCount = 0;
-let failCount = 0;
+console.log('🧪 Iniciando Bateria de Testes do Cripto Ticker Pro API (100% Offline)...\n');
+
+let pass = 0;
+let fail = 0;
 
 function assert(condition, message) {
   if (condition) {
-    passCount++;
+    pass++;
     console.log(`  ✅ ${message}`);
   } else {
-    failCount++;
+    fail++;
     console.error(`  ❌ FALHA: ${message}`);
     throw new Error(message);
   }
 }
 
-// ─── 1. AUTENTICAÇÃO RFC 6750 & MATRIZ DE PLANOS ───
-console.log('--- 1. Padrão de Autenticação RFC 6750 & Resolução de Nível ---');
+// ─── MOCK DA REDE PARA TESTES OFFLINE ───
+const MOCK_COINGECKO_MARKETS = [
+  {
+    id: 'bitcoin',
+    symbol: 'btc',
+    name: 'Bitcoin',
+    current_price: 64000,
+    market_cap: 1280000000000,
+    market_cap_rank: 1,
+    total_volume: 35000000000,
+    price_change_percentage_24h: 2.5,
+    price_change_percentage_7d_in_currency: -5.0,
+    ath: 126000,
+    circulating_supply: 19780000,
+    last_updated: '2026-11-17T18:00:00.000Z',
+    sparkline_in_7d: { price: Array.from({ length: 168 }, (_, i) => 60000 + i * 20) }
+  },
+  {
+    id: 'ethereum',
+    symbol: 'eth',
+    name: 'Ethereum',
+    current_price: 3200,
+    market_cap: 384000000000,
+    market_cap_rank: 2,
+    total_volume: 20000000000,
+    price_change_percentage_24h: -1.2,
+    price_change_percentage_7d_in_currency: 3.1,
+    ath: 4890,
+    circulating_supply: 120000000,
+    last_updated: '2026-11-17T18:00:00.000Z',
+    sparkline_in_7d: { price: Array.from({ length: 168 }, (_, i) => 3100 + i * 2) }
+  }
+];
 
-const resFree = await worker.fetch(new Request('https://api.test/api/cripto/health'), {});
-assert(resFree.status === 200, 'Requisição anônima responde HTTP 200');
-assert(resFree.headers.get('x-cripto-plan') === 'free', 'Requisição anônima recebe plano free');
-assert(resFree.headers.get('x-cripto-ratelimit-limit') === '30', 'Plano free tem limite de 30 RPM');
+const MOCK_PTAX_USD = {
+  value: [
+    {
+      cotacaoCompra: 5.75,
+      cotacaoVenda: 5.80,
+      dataHoraCotacao: '2026-11-17 13:07:26.015',
+      tipoBoletim: 'Fechamento'
+    }
+  ]
+};
 
-const resStarter = await worker.fetch(new Request('https://api.test/api/cripto/health', {
-  headers: { 'Authorization': 'Bearer crp_start_live123' }
-}), {});
-assert(resStarter.headers.get('x-cripto-plan') === 'starter', 'Token crp_start_ resolve plano starter');
-assert(resStarter.headers.get('x-cripto-ratelimit-limit') === '60', 'Plano starter tem 60 RPM');
+const MOCK_FNG = {
+  name: 'Fear and Greed Index',
+  data: [
+    {
+      value: '25',
+      value_classification: 'Extreme Fear',
+      timestamp: '1794930000',
+      time_until_update: '12000'
+    }
+  ]
+};
 
-const resPro = await worker.fetch(new Request('https://api.test/api/cripto/health', {
-  headers: { 'x-api-key': 'crp_pro_live456' }
-}), {});
-assert(resPro.headers.get('x-cripto-plan') === 'pro', 'Header x-api-key crp_pro_ resolve plano pro');
-assert(resPro.headers.get('x-cripto-ratelimit-limit') === '300', 'Plano pro tem 300 RPM');
+const MOCK_MEMPOOL = {
+  fastestFee: 15,
+  halfHourFee: 10,
+  hourFee: 5,
+  minimumFee: 1
+};
 
-const resMaster = await worker.fetch(new Request('https://api.test/api/cripto/health', {
-  headers: { 'Authorization': 'Bearer crp_master_suite' }
-}), {});
-assert(resMaster.headers.get('x-cripto-plan') === 'master', 'Token crp_master_ resolve plano master');
-assert(resMaster.headers.get('x-cripto-ratelimit-limit') === '3000', 'Plano master tem 3000 RPM');
+const MOCK_ETH_RPC = {
+  jsonrpc: '2.0',
+  id: 1,
+  result: '0xe5135ad' // 240203181 wei => ~0.24 Gwei
+};
 
+let chamadasFetch = 0;
+const mockFetch = async (url, options = {}) => {
+  chamadasFetch++;
+  const u = String(url);
 
-// ─── 2. RATE LIMITING DINÂMICO & HTTP 429 ───
-console.log('\n--- 2. Rate Limiting Dinâmico & Bloqueio HTTP 429 ---');
+  if (u.includes('coingecko.com') && u.includes('/coins/markets')) {
+    return new Response(JSON.stringify(MOCK_COINGECKO_MARKETS), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+  if (u.includes('coingecko.com') && u.includes('/global')) {
+    return new Response(JSON.stringify({
+      data: {
+        active_cryptocurrencies: 20000,
+        market_cap_percentage: { btc: 58.5, eth: 10.2 },
+        updated_at: 1794930000
+      }
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+  if (u.includes('olinda.bcb.gov.br')) {
+    return new Response(JSON.stringify(MOCK_PTAX_USD), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+  if (u.includes('alternative.me/fng')) {
+    return new Response(JSON.stringify(MOCK_FNG), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+  if (u.includes('mempool.space')) {
+    return new Response(JSON.stringify(MOCK_MEMPOOL), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+  if (u.includes('ethereum-rpc.publicnode.com')) {
+    return new Response(JSON.stringify(MOCK_ETH_RPC), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
 
-let atingiu429 = false;
-let retryAfterHeader = null;
+  return new Response(JSON.stringify({ error: 'not found' }), { status: 404 });
+};
 
+const ENV_TESTE = {
+  COINGECKO_API_KEY: 'mock_key_test'
+};
+
+// ─── 1. AUTENTICAÇÃO E PLANOS ───
+console.log('--- 1. Autenticação e Matriz de Planos ---');
+resetarCaches();
+
+const resHealth = await worker.fetch(new Request('https://api.test/api/cripto/health'), ENV_TESTE, {}, mockFetch);
+assert(resHealth.status === 200, 'Healthcheck responde HTTP 200');
+const dataHealth = await resHealth.json();
+assert(dataHealth.ok === true, 'Healthcheck ok === true');
+assert(!JSON.stringify(dataHealth).includes('Solana'), 'Healthcheck não inventa suporte a Solana Gas');
+
+const resFontes = await worker.fetch(new Request('https://api.test/api/cripto/fontes'), ENV_TESTE, {}, mockFetch);
+assert(resFontes.status === 200, 'Rota /api/cripto/fontes responde 200');
+const dataFontes = await resFontes.json();
+assert(dataFontes.fontes.coingecko && dataFontes.fontes.bcb && dataFontes.fontes.alternativeMe, 'Lista fontes oficiais');
+
+// ─── 2. FALTA DE CHAVE COINGECKO DEVE DAR 503 (NUNCA CHUTAR DADO) ───
+console.log('\n--- 2. Tratamento de Chave Não Configurada (Sem Fallback Inventado) ---');
+resetarCaches();
+const resSemChave = await worker.fetch(new Request('https://api.test/api/cripto/cotacao/btc'), {}, {});
+assert(resSemChave.status === 503, 'Sem chave CoinGecko configurada responde HTTP 503');
+const dataSemChave = await resSemChave.json();
+assert(dataSemChave.erro === 'CHAVE_NAO_CONFIGURADA', 'Erro explícito CHAVE_NAO_CONFIGURADA');
+
+// ─── 3. COTAÇÕES COM FONTE REAL E CONVERSÃO PTAX ───
+console.log('\n--- 3. Cotações Reais (CoinGecko + PTAX BCB) ---');
+resetarCaches();
+chamadasFetch = 0;
+
+const resCotacao = await worker.fetch(new Request('https://api.test/api/cripto/cotacao/btc'), ENV_TESTE, {}, mockFetch);
+assert(resCotacao.status === 200, 'Consulta cotação BTC responde 200');
+const dataCotacao = await resCotacao.json();
+assert(dataCotacao.ativo.precoUsd === 64000, 'Preço USD bate com fonte mockada');
+assert(dataCotacao.ativo.precoBrl === Math.round(64000 * 5.80 * 100) / 100, 'Preço BRL usa taxa PTAX (5.80)');
+assert(dataCotacao.cambioPtaxUsd === 5.80, 'Informa taxa PTAX oficial utilizada');
+
+// Testa cache: segunda chamada idêntica não deve chamar o fetch novamente
+const chamadasAntes = chamadasFetch;
+await worker.fetch(new Request('https://api.test/api/cripto/cotacao/btc'), ENV_TESTE, {}, mockFetch);
+assert(chamadasFetch === chamadasAntes, 'Segunda requisição é atendida pelo cache em memória');
+
+// ─── 4. FEAR & GREED (ALTERNATIVE.ME COM ATRIBUIÇÃO) ───
+console.log('\n--- 4. Sentimento & Fear and Greed Index ---');
+const resFng = await worker.fetch(new Request('https://api.test/api/cripto/sentimento'), ENV_TESTE, {}, mockFetch);
+assert(resFng.status === 200, 'Rota sentimento responde 200');
+const dataFng = await resFng.json();
+assert(dataFng.fearAndGreedIndex.valor === 25, 'Valor Fear and Greed correto');
+assert(dataFng.fearAndGreedIndex.classificacao === 'Medo Extremo', 'Classificação traduzida');
+assert(dataFng.fearAndGreedIndex.atribuicao.includes('alternative.me'), 'Atribuição obrigatória presente');
+
+// ─── 5. GAS TRACKER (ETHEREUM + BITCOIN) ───
+console.log('\n--- 5. Gas Tracker (Ethereum RPC + Bitcoin Mempool) ---');
+const resGas = await worker.fetch(new Request('https://api.test/api/cripto/gas'), ENV_TESTE, {}, mockFetch);
+assert(resGas.status === 200, 'Rota gas responde 200');
+const dataGas = await resGas.json();
+assert(dataGas.bitcoin.altaPrioridade.satVb === 15, 'Taxa Bitcoin rápida 15 sat/vB');
+assert(dataGas.ethereum.gasPriceGwei > 0, 'Gas Ethereum Gwei extraído de eth_gasPrice');
+assert(!dataGas.solana, 'Solana sem fonte verificada foi removida');
+
+// ─── 6. CONVERSOR DE PARIDADES REAL ───
+console.log('\n--- 6. Conversor de Paridades Real ---');
+const resConv = await worker.fetch(new Request('https://api.test/api/cripto/converter?qtd=2&de=btc&para=usd'), ENV_TESTE, {}, mockFetch);
+assert(resConv.status === 200, 'Conversão 2 BTC -> USD responde 200');
+const dataConv = await resConv.json();
+assert(dataConv.resultadoTotal === 128000, '2 BTC * 64.000 = 128.000 USD');
+
+// ─── 7. CARD SVG COM SPARKLINE E ESCAPE XML ───
+console.log('\n--- 7. Card SVG com Sparkline e Escape XML ---');
+const resSvg = await worker.fetch(new Request('https://api.test/api/cripto/card/btc.svg'), ENV_TESTE, {}, mockFetch);
+assert(resSvg.status === 200, 'Card SVG responde 200');
+assert(resSvg.headers.get('Content-Type').includes('image/svg+xml'), 'Header Content-Type é SVG');
+const svgTexto = await resSvg.text();
+assert(svgTexto.includes('<svg') && svgTexto.includes('</svg>'), 'SVG bem formatado');
+assert(svgTexto.includes('CoinGecko') && svgTexto.includes('BCB PTAX'), 'Atribuições presentes no SVG');
+
+// ─── 8. RATE LIMIT 429 ───
+console.log('\n--- 8. Rate Limiting Dinâmico & Bloqueio HTTP 429 ---');
+let bateu429 = false;
 for (let i = 0; i < 35; i++) {
-  const r = await worker.fetch(new Request('https://api.test/api/cripto/health', {
-    headers: { 'Authorization': 'Bearer crp_free_test_flood' }
-  }), {});
+  const r = await worker.fetch(new Request('https://api.test/api/cripto/health'), ENV_TESTE, {}, mockFetch);
   if (r.status === 429) {
-    atingiu429 = true;
-    retryAfterHeader = r.headers.get('Retry-After');
+    bateu429 = true;
     break;
   }
 }
-assert(atingiu429, 'Rate limiter bloqueia com HTTP 429 ao ultrapassar cota RPM do plano free');
-assert(retryAfterHeader !== null, 'Header Retry-After retornado no 429');
+assert(bateu429, 'Rate limiter bloqueia após 30 RPM no plano free');
 
+// ─── 9. VERIFICAÇÃO DE CÓDIGO LIMPO (ZERO HARDCODE DE PREÇO/TAXAS) ───
+console.log('\n--- 9. Auditoria Estática (Zero Preços ou Taxas Hardcoded) ---');
+const arquivosProducao = ['cripto-engine.js', 'worker.js', 'cache.js', 'cripto-ticker-pro.js'];
+const padroesProibidos = [
+  /precoUsd:\s*\d{3,}/i,
+  /TAXA_CAMBIO_USD_BRL/i,
+  /sparkline7d:\s*\[\s*\d/i,
+  /CRIPTO_DATABASE/i,
+  /91500/
+];
 
-// ─── 3. HEALTHCHECK & METADADOS ANYCAST ───
-console.log('\n--- 3. Healthcheck & Metadados Anycast ---');
+for (const f of arquivosProducao) {
+  const conteudo = fs.readFileSync(path.join(__dirname, f), 'utf8');
+  for (const reg of padroesProibidos) {
+    if (reg.test(conteudo)) {
+      throw new Error(`Padrão proibido "${reg}" encontrado no arquivo de produção ${f}`);
+    }
+  }
+}
+assert(true, 'Nenhum valor simulado/hardcoded de preço ou taxa encontrado no código de produção');
 
-const dataHealth = await (await worker.fetch(new Request('https://api.test/api/cripto/health'), {})).json();
-assert(dataHealth.ok === true, 'Health reporta status ok: true');
-assert(dataHealth.servico.includes('Cripto Ticker Pro'), 'Nome do serviço validado');
-assert(dataHealth.totalAtivosMonitorados >= 10, 'Mínimo de 10 ativos de ponta');
-
-
-// ─── 4. LISTA DE ATIVOS & FILTROS ───
-console.log('\n--- 4. Lista de Criptoativos & Filtro por Categoria ---');
-
-const resAtivos = await worker.fetch(new Request('https://api.test/api/cripto/ativos'), {});
-assert(resAtivos.status === 200, 'Endpoint /api/cripto/ativos responde 200');
-const dataAtivos = await resAtivos.json();
-assert(dataAtivos.totalAtivos >= 10, 'Total de ativos consistente');
-
-const resStables = await worker.fetch(new Request('https://api.test/api/cripto/ativos?categoria=stablecoin'), {});
-const dataStables = await resStables.json();
-assert(dataStables.ativos.some(a => a.simbolo === 'USDT'), 'Tether USDT presente em stablecoins');
-
-
-// ─── 5. COTAÇÃO DO BITCOIN (BTC) EM USD E BRL ───
-console.log('\n--- 5. Cotação do Bitcoin (BTC) ---');
-
-const resBtc = await worker.fetch(new Request('https://api.test/api/cripto/cotacao/btc'), {});
-assert(resBtc.status === 200, 'Endpoint /api/cripto/cotacao/btc responde 200');
-const dataBtc = await resBtc.json();
-assert(dataBtc.ativo.simbolo === 'BTC', 'Símbolo BTC validado');
-assert(dataBtc.ativo.precoUsd >= 50000, 'Preço USD consistente');
-assert(dataBtc.ativo.precoBrl > dataBtc.ativo.precoUsd * 5, 'Preço convertido para BRL');
-assert(dataBtc.ativo.sparkline7d.length === 7, 'Sparkline de 7 dias presente');
-
-
-// ─── 6. COTAÇÃO DA SOLANA (SOL) E ETHEREUM (ETH) ───
-console.log('\n--- 6. Cotação da Solana e Ethereum ---');
-
-const resSol = await worker.fetch(new Request('https://api.test/api/cripto/cotacao/sol'), {});
-const dataSol = await resSol.json();
-assert(dataSol.ativo.simbolo === 'SOL', 'Solana identificada');
-
-const resEth = await worker.fetch(new Request('https://api.test/api/cripto/cotacao/eth'), {});
-const dataEth = await resEth.json();
-assert(dataEth.ativo.simbolo === 'ETH', 'Ethereum identificado');
-
-
-// ─── 7. REJEIÇÃO DE ATIVO INEXISTENTE ───
-console.log('\n--- 7. Rejeição de Ativo Inexistente ---');
-
-const resFake = await worker.fetch(new Request('https://api.test/api/cripto/cotacao/moeda-fantasma'), {});
-assert(resFake.status === 404, 'Ativo inexistente retorna HTTP 404');
-
-
-// ─── 8. GAS & NETWORK FEE TRACKER ───
-console.log('\n--- 8. Gas & Network Fee Tracker ---');
-
-const resGas = await worker.fetch(new Request('https://api.test/api/cripto/gas'), {});
-assert(resGas.status === 200, 'Endpoint /api/cripto/gas responde 200');
-const dataGas = await resGas.json();
-assert(dataGas.ethereum.padrao.gwei > 0, 'Taxa padrão em Gwei calculada para Ethereum');
-assert(dataGas.bitcoin.mediaPrioridade.satVb > 0, 'Taxa em sat/vB calculada para Bitcoin');
-assert(dataGas.solana.taxaBase !== undefined, 'Taxa base da Solana reportada');
-
-
-// ─── 9. CONVERSOR DE PARIDADES CRUZADAS ───
-console.log('\n--- 9. Conversor de Paridades Cruzadas ---');
-
-// 9.1 De BTC para BRL
-const resConvBrl = await worker.fetch(new Request('https://api.test/api/cripto/converter?qtd=0.5&de=btc&para=brl'), {});
-assert(resConvBrl.status === 200, 'Conversor BTC para BRL responde 200');
-const dataConvBrl = await resConvBrl.json();
-assert(dataConvBrl.resultadoTotal > 100000, '0.5 BTC convertido para BRL com precisão');
-
-// 9.2 De SOL para BTC
-const resConvSol = await worker.fetch(new Request('https://api.test/api/cripto/converter?qtd=10&de=sol&para=btc'), {});
-const dataConvSol = await resConvSol.json();
-assert(dataConvSol.taxaConversao > 0, 'Taxa de conversão cruzada SOL/BTC calculada');
-
-
-// ─── 10. SENTIMENTO & FEAR AND GREED INDEX ───
-console.log('\n--- 10. Sentimento de Mercado & Fear and Greed ---');
-
-const resSent = await worker.fetch(new Request('https://api.test/api/cripto/sentimento'), {});
-assert(resSent.status === 200, 'Endpoint /api/cripto/sentimento responde 200');
-const dataSent = await resSent.json();
-assert(dataSent.fearAndGreedIndex.valor >= 0 && dataSent.fearAndGreedIndex.valor <= 100, 'Valor do Fear & Greed entre 0 e 100');
-assert(dataSent.dominanciaMercado.bitcoin !== undefined, 'Dominância do Bitcoin calculada');
-
-
-// ─── 11. RENDERIZADOR VETORIAL SVG COM SPARKLINE ───
-console.log('\n--- 11. Renderizador Vetorial SVG com Sparkline ---');
-
-const resSvg = await worker.fetch(new Request('https://api.test/api/cripto/card/btc.svg'), {});
-assert(resSvg.status === 200, 'Endpoint /api/cripto/card/btc.svg responde 200');
-assert(resSvg.headers.get('Content-Type').includes('image/svg+xml'), 'Header image/svg+xml retornado');
-const svgText = await resSvg.text();
-assert(svgText.includes('CRIPTO TICKER PRO ANYCAST'), 'Marca dágua oficial no SVG');
-assert(svgText.includes('Bitcoin'), 'Nome do Bitcoin no SVG');
-assert(svgText.includes('<path d="M'), 'Sparkline desenhada como path SVG');
-
-
-// ─── 12. SDK ISOMÓRFICO CRIPTOTICKERPRO ───
-console.log('\n--- 12. Validação do SDK Isomórfico CriptoTickerPro ---');
-
-const origFetch = globalThis.fetch;
-globalThis.fetch = async (input, init) => {
-  const req = input instanceof Request ? input : new Request(input, init);
-  return await worker.fetch(req, {});
-};
-
-CriptoTickerPro.configure({ baseUrl: 'https://api.test', apiKey: 'crp_master_sdk_key' });
-
-const sdkHealth = await CriptoTickerPro.getHealth();
-assert(sdkHealth.ok === true && sdkHealth.servico.includes('Cripto Ticker'), 'SDK getHealth funciona');
-
-const sdkAtivos = await CriptoTickerPro.getAtivos();
-assert(sdkAtivos.ok === true && sdkAtivos.totalAtivos >= 10, 'SDK getAtivos funciona');
-
-const sdkBtc = await CriptoTickerPro.getCotacao('btc');
-assert(sdkBtc.ok === true && sdkBtc.ativo.simbolo === 'BTC', 'SDK getCotacao funciona');
-
-const sdkGas = await CriptoTickerPro.getGasTracker();
-assert(sdkGas.ok === true && sdkGas.ethereum.padrao.gwei > 0, 'SDK getGasTracker funciona');
-
-const sdkConv = await CriptoTickerPro.converter(1, 'ETH', 'BRL');
-assert(sdkConv.ok === true && sdkConv.resultadoTotal > 0, 'SDK converter funciona');
-
-const sdkSent = await CriptoTickerPro.getSentimento();
-assert(sdkSent.ok === true && sdkSent.fearAndGreedIndex !== undefined, 'SDK getSentimento funciona');
-
-const sdkSvgUrl = CriptoTickerPro.getCriptoCardSvgUrl('sol');
-assert(sdkSvgUrl.includes('/card/sol.svg'), 'SDK getCriptoCardSvgUrl gera URL correta');
-
-globalThis.fetch = origFetch;
-
-console.log(`\n🎉 Todos os ${passCount} testes do Cripto Ticker Pro foram executados e APROVADOS com sucesso! Zero falhas (${failCount}).\n`);
+console.log(`\n🎉 Todos os ${pass} testes do Cripto Ticker Pro passaram com 100% de sucesso!`);

@@ -1,10 +1,10 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cripto Ticker Pro Studio — Cotações em Tempo Real &amp; Gas Tracker Anycast</title>
-  <meta name="description" content="Cotações em tempo real de Bitcoin, Ethereum, Solana e 50+ ativos em USD e BRL, Gas Tracker, Paridades Cruzadas e Sparklines SVG na borda Anycast (<2ms).">
+  <meta name="description" content="Cotações em tempo real de criptoativos em USD e BRL (via CoinGecko + BCB PTAX), Gas Tracker, Sentimento e Paridades Cruzadas na borda Anycast.">
   <link rel="stylesheet" href="ponte-suite.css">
   <style>
     .crypto-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin: 20px 0; }
@@ -14,6 +14,7 @@
     .crypto-price-usd { font-family: var(--font-mono); font-size: 24px; font-weight: 900; color: var(--ink); }
     .crypto-price-brl { font-size: 14px; color: var(--mint); font-weight: 700; margin-top: 2px; }
     .gas-box { background: var(--paper-elevated); padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--line-light); text-align: center; }
+    .attribution-bar { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; margin-top: 24px; line-height: 1.6; }
   </style>
   <script>
     (function() {
@@ -54,35 +55,35 @@
   <main class="ponte-container">
     <div class="ponte-hero">
       <div class="ponte-badges-bar">
-        <span class="ponte-badge amber">● BTC, ETH, SOL &amp; 50+ Ativos</span>
-        <span class="ponte-badge blue">⚡ Gas Tracker Gwei &amp; Sats</span>
-        <span class="ponte-badge purple">🔄 Conversor de Paridades</span>
+        <span class="ponte-badge amber">● BTC, ETH, SOL &amp; 12 Ativos Oficiais</span>
+        <span class="ponte-badge blue">⚡ Gas Tracker (ETH &amp; BTC)</span>
+        <span class="ponte-badge purple">🔄 Câmbio BCB PTAX</span>
         <span class="ponte-badge mint">📈 Sparklines SVG 7D</span>
       </div>
       <h1>Cripto Ticker Pro Studio</h1>
-      <p>Terminal de inteligência de mercado cripto na borda Cloudflare Anycast. Cotações em tempo real em Dólar e Real, monitor de taxas de rede em tempo real, conversor universal de paridades e sparklines vetoriais SVG.</p>
+      <p>Terminal de inteligência de mercado cripto na borda Cloudflare Anycast. Cotações alimentadas via CoinGecko com conversão cambial oficial PTAX do Banco Central, taxas de rede (Bitcoin e Ethereum) e índice de sentimento.</p>
 
       <!-- Ticker Gas e Fear & Greed -->
       <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin-top:20px;">
         <div class="gas-box">
-          <small style="color:var(--muted);">Ethereum Gas (Padrão)</small>
-          <div style="font-size:22px; font-weight:800; color:#60a5fa; margin-top:2px;" id="eth-gas">16 Gwei</div>
-          <small style="color:var(--muted); font-size:11px;">Custo tx: ~ $ 1.05</small>
+          <small style="color:var(--muted);">Ethereum Gas (RPC)</small>
+          <div style="font-size:22px; font-weight:800; color:#60a5fa; margin-top:2px;" id="eth-gas">Carregando...</div>
+          <small style="color:var(--muted); font-size:11px;" id="eth-custo">Consultando nó PublicNode</small>
         </div>
         <div class="gas-box">
           <small style="color:var(--muted);">Bitcoin Mempool</small>
-          <div style="font-size:22px; font-weight:800; color:#fbbf24; margin-top:2px;" id="btc-gas">22 sat/vB</div>
-          <small style="color:var(--muted); font-size:11px;">Média ~ 15 min</small>
+          <div style="font-size:22px; font-weight:800; color:#fbbf24; margin-top:2px;" id="btc-gas">Carregando...</div>
+          <small style="color:var(--muted); font-size:11px;" id="btc-tempo">Mempool.space</small>
         </div>
         <div class="gas-box">
-          <small style="color:var(--muted);">Fear &amp; Greed Index</small>
-          <div style="font-size:22px; font-weight:800; color:#10b981; margin-top:2px;" id="fg-index">82 / 100</div>
-          <small style="color:#10b981; font-size:11px;">Extreme Greed</small>
+          <small style="color:var(--muted);">Fear &amp; Greed (Bitcoin)</small>
+          <div style="font-size:22px; font-weight:800; color:#10b981; margin-top:2px;" id="fg-index">Carregando...</div>
+          <small style="color:#10b981; font-size:11px;" id="fg-status">Alternative.me</small>
         </div>
         <div class="gas-box">
           <small style="color:var(--muted);">Dominância BTC</small>
-          <div style="font-size:22px; font-weight:800; color:var(--mint); margin-top:2px;" id="btc-dom">58.4%</div>
-          <small style="color:var(--muted); font-size:11px;">Market Cap $ 1.81T</small>
+          <div style="font-size:22px; font-weight:800; color:var(--mint); margin-top:2px;" id="btc-dom">Carregando...</div>
+          <small style="color:var(--muted); font-size:11px;" id="btc-dom-sub">Mercado Global</small>
         </div>
       </div>
     </div>
@@ -101,7 +102,9 @@
 
     <!-- Grade de Cards de Criptoativos -->
     <div class="crypto-grid" id="grid-criptos">
-      <!-- Renderizado dinamicamente -->
+      <div style="padding: 24px; text-align: center; color: var(--muted); grid-column: 1 / -1;">
+        Carregando cotações via Anycast...
+      </div>
     </div>
 
     <!-- Conversor de Paridades Cruzadas -->
@@ -126,7 +129,7 @@
         <div>
           <label style="font-size:11px; font-weight:700; color:var(--muted); display:block; margin-bottom:4px;">PARA (DESTINO)</label>
           <select id="conv-para" class="ponte-select" style="width:100%;" onchange="executarConversaoUi()">
-            <option value="BRL">Real Brasileiro (BRL)</option>
+            <option value="BRL" selected>Real Brasileiro (BRL)</option>
             <option value="USD">Dólar Americano (USD)</option>
             <option value="BTC">Bitcoin (BTC)</option>
             <option value="ETH">Ethereum (ETH)</option>
@@ -135,20 +138,85 @@
         </div>
         <div>
           <label style="font-size:11px; font-weight:700; color:var(--muted); display:block; margin-bottom:4px;">RESULTADO ESTIMADO</label>
-          <div id="conv-resultado" style="font-size:18px; font-weight:900; color:var(--mint); margin-top:6px; font-family:var(--font-mono);">Calculando...</div>
+          <div id="conv-resultado" style="font-size:18px; font-weight:900; color:var(--mint); margin-top:6px; font-family:var(--font-mono);">Aguardando...</div>
         </div>
       </div>
+    </div>
+
+    <!-- Atribuição e Transparência das Fontes -->
+    <div class="attribution-bar">
+      <strong>Transparência de Fontes:</strong> Cotações e sparklines via <em>CoinGecko</em> (requer chave secreta no Worker) • Câmbio BRL via <em>Banco Central do Brasil (PTAX oficial)</em> • Índice de Sentimento via <em>Alternative.me (Crypto Fear &amp; Greed Index)</em> • Taxas Bitcoin via <em>Mempool.space</em> • Gas Ethereum via <em>PublicNode JSON-RPC</em>.
     </div>
   </main>
 
   <script type="module">
-    import { listarCriptos, converterParidade, obterGasTracker, obterSentimentoEDominancia } from './cripto-engine.js';
+    let todosAtivos = [];
+    let ptaxUsd = null;
 
-    let todosAtivos = listarCriptos();
+    async function carregarDados() {
+      // 1. Gas Tracker
+      fetch('/api/cripto/gas').then(r => r.json()).then(g => {
+        if (g.ok) {
+          if (g.ethereum && !g.ethereum.erro) {
+            document.getElementById('eth-gas').textContent = `${g.ethereum.gasPriceGwei} Gwei`;
+            document.getElementById('eth-custo').textContent = g.ethereum.custoTransferenciaSimplesUsd ? `Tx simples: ~$ ${g.ethereum.custoTransferenciaSimplesUsd}` : 'Preço estimado';
+          } else {
+            document.getElementById('eth-gas').textContent = 'Indisponível';
+          }
+          if (g.bitcoin && !g.bitcoin.erro) {
+            document.getElementById('btc-gas').textContent = `${g.bitcoin.altaPrioridade.satVb} sat/vB`;
+            document.getElementById('btc-tempo').textContent = g.bitcoin.altaPrioridade.estimativa || 'Próximo bloco';
+          } else {
+            document.getElementById('btc-gas').textContent = 'Indisponível';
+          }
+        }
+      }).catch(() => {});
+
+      // 2. Sentimento & Dominância
+      fetch('/api/cripto/sentimento').then(r => r.json()).then(s => {
+        if (s.ok) {
+          if (s.fearAndGreedIndex) {
+            document.getElementById('fg-index').textContent = `${s.fearAndGreedIndex.valor} / 100`;
+            document.getElementById('fg-status').textContent = s.fearAndGreedIndex.classificacao;
+          }
+          if (s.dominanciaGlobal?.bitcoin) {
+            document.getElementById('btc-dom').textContent = s.dominanciaGlobal.bitcoin;
+          }
+        }
+      }).catch(() => {});
+
+      // 3. Ativos e Cotações
+      try {
+        const resp = await fetch('/api/cripto/ativos');
+        const res = await resp.json();
+        if (res.ok && Array.isArray(res.ativos)) {
+          todosAtivos = res.ativos;
+          ptaxUsd = res.cambioPtaxUsd;
+          renderGrid(todosAtivos);
+          executarConversaoUi();
+        } else if (res.erro === 'CHAVE_NAO_CONFIGURADA') {
+          document.getElementById('grid-criptos').innerHTML = `
+            <div style="padding: 28px; text-align: center; background: var(--paper); border: 1px dashed var(--line); border-radius: 12px; grid-column: 1 / -1;">
+              <h3 style="color: #f59e0b; margin-top: 0;">🔑 Chave da CoinGecko Não Configurada no Worker</h3>
+              <p style="color: var(--muted); max-width: 600px; margin: 8px auto 16px;">Para ativar cotações reais de mercado sem inventar dados, configure sua chave no Cloudflare Worker usando:</p>
+              <code style="background: var(--paper-elevated); padding: 8px 16px; border-radius: 6px; font-family: var(--font-mono); color: var(--mint);">wrangler secret put COINGECKO_API_KEY</code>
+            </div>
+          `;
+        } else {
+          document.getElementById('grid-criptos').innerHTML = `<div style="padding:20px; text-align:center; color:#ef4444; grid-column:1/-1;">${res.mensagem || 'Falha ao carregar cotações.'}</div>`;
+        }
+      } catch (e) {
+        document.getElementById('grid-criptos').innerHTML = `<div style="padding:20px; text-align:center; color:#ef4444; grid-column:1/-1;">Erro de conexão com o cluster Anycast.</div>`;
+      }
+    }
 
     window.filtrarCategoriaUi = function(cat) {
-      todosAtivos = listarCriptos(cat);
-      renderGrid(todosAtivos);
+      if (!cat) {
+        renderGrid(todosAtivos);
+        return;
+      }
+      const filtrados = todosAtivos.filter(c => (c.categoria || '').toLowerCase().includes(cat.toLowerCase()));
+      renderGrid(filtrados);
     };
 
     window.filtrarBuscaUi = function(txt) {
@@ -159,6 +227,10 @@
 
     function renderGrid(lista) {
       const grid = document.getElementById('grid-criptos');
+      if (lista.length === 0) {
+        grid.innerHTML = '<div style="padding:20px; color:var(--muted); text-align:center; grid-column:1/-1;">Nenhum ativo encontrado.</div>';
+        return;
+      }
       grid.innerHTML = lista.map(c => {
         const isUp = c.variacao24hPct >= 0;
         const cor = isUp ? '#10b981' : '#ef4444';
@@ -168,10 +240,10 @@
               <div>
                 <strong style="color:var(--ink); font-size:15px;">${c.nome}</strong>
                 <span style="color:#60a5fa; font-size:12px; font-weight:700; margin-left:4px;">${c.simbolo}</span>
-                <small style="color:var(--muted); display:block; font-size:11px;">#${c.rank} • ${c.categoria}</small>
+                <small style="color:var(--muted); display:block; font-size:11px;">#${c.rank || '-'} • ${c.categoria}</small>
               </div>
               <span class="ponte-badge" style="background:${isUp ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'}; color:${cor}; font-weight:800; font-size:11px;">
-                ${isUp ? '▲' : '▼'} ${c.variacao24hPct > 0 ? '+' : ''}${c.variacao24hPct}%
+                ${isUp ? '▲' : '▼'} ${c.variacao24hPct > 0 ? '+' : ''}${c.variacao24hPct.toFixed(2)}%
               </span>
             </div>
 
@@ -179,7 +251,7 @@
             <div class="crypto-price-brl">${c.precoFormatadoBrl}</div>
 
             <div style="margin-top:14px; border-top:1px solid var(--line-light); padding-top:10px; font-size:11.5px; color:var(--muted); display:flex; justify-content:space-between;">
-              <span>Mkt Cap: <strong>${c.marketCapFormatado}</strong></span>
+              <span>Mkt Cap: <strong>${c.marketCapFormatado || '-'}</strong></span>
               <a href="/api/cripto/card/${c.simbolo.toLowerCase()}.svg" target="_blank" style="color:var(--mint); text-decoration:none; font-weight:700;">Ver SVG ↗</a>
             </div>
           </div>
@@ -187,13 +259,18 @@
       }).join('');
     }
 
-    window.executarConversaoUi = function() {
+    window.executarConversaoUi = async function() {
       const qtd = parseFloat(document.getElementById('conv-qtd').value || 1);
       const de = document.getElementById('conv-de').value;
       const para = document.getElementById('conv-para').value;
 
-      const res = converterParidade(qtd, de, para);
-      document.getElementById('conv-resultado').textContent = res.resultadoFormatado || 'Erro';
+      try {
+        const r = await fetch(`/api/cripto/converter?qtd=${qtd}&de=${de}&para=${para}`);
+        const res = await r.json();
+        document.getElementById('conv-resultado').textContent = res.resultadoFormatado || res.mensagem || 'Erro';
+      } catch {
+        document.getElementById('conv-resultado').textContent = 'Erro ao converter';
+      }
     };
 
     document.getElementById('theme-toggle-btn').addEventListener('click', () => {
@@ -203,8 +280,7 @@
       localStorage.setItem('ponte.theme', next);
     });
 
-    renderGrid(todosAtivos);
-    executarConversaoUi();
+    carregarDados();
   </script>
 </body>
 </html>

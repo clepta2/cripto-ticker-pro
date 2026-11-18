@@ -1,0 +1,3 @@
+﻿# Exemplo de configuração local para wrangler dev (NUNCA versione valores reais)
+COINGECKO_API_KEY=sua_chave_coingecko_aqui
+COINGECKO_API_PLAN=demo
