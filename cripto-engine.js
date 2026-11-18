@@ -378,6 +378,12 @@ export async function consultarCripto(simboloOuSlug, env = {}, ctx = {}, fetchIm
   const taxaPtax = resPtax.dados.taxaVenda;
   const precoBrl = Number((ativo.precoUsd * taxaPtax).toFixed(2));
 
+  // Métricas derivadas dos 168 pontos reais da sparkline de 7 dias
+  const pts = Array.isArray(ativo.sparkline7d) && ativo.sparkline7d.length > 0 ? ativo.sparkline7d : [];
+  const min7d = pts.length > 0 ? Math.min(...pts) : ativo.precoUsd;
+  const max7d = pts.length > 0 ? Math.max(...pts) : ativo.precoUsd;
+  const amp7d = min7d > 0 ? Number((((max7d - min7d) / min7d) * 100).toFixed(2)) : 0;
+
   return {
     ok: true,
     desatualizado: resMarkets.desatualizado || resPtax.desatualizado,
@@ -389,7 +395,12 @@ export async function consultarCripto(simboloOuSlug, env = {}, ctx = {}, fetchIm
       precoFormatadoBrl: `R$ ${precoBrl.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
       marketCapFormatado: `$ ${(ativo.marketCapUsd / 1e9).toFixed(2)}B`,
       volume24hFormatado: `$ ${(ativo.volume24hUsd / 1e9).toFixed(2)}B`,
-      distanciaATH: ativo.athUsd ? `${(((ativo.precoUsd - ativo.athUsd) / ativo.athUsd) * 100).toFixed(1)}%` : null
+      distanciaATH: ativo.athUsd ? `${(((ativo.precoUsd - ativo.athUsd) / ativo.athUsd) * 100).toFixed(1)}%` : null,
+      estatisticas7d: {
+        minimoUsd: min7d,
+        maximoUsd: max7d,
+        amplitudePct: amp7d
+      }
     },
     cambioPtaxUsd: taxaPtax,
     cambioDataHora: resPtax.dados.dataHoraCotacao

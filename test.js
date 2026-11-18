@@ -164,6 +164,7 @@ const dataCotacao = await resCotacao.json();
 assert(dataCotacao.ativo.precoUsd === 64000, 'Preço USD bate com fonte mockada');
 assert(dataCotacao.ativo.precoBrl === Math.round(64000 * 5.80 * 100) / 100, 'Preço BRL usa taxa PTAX (5.80)');
 assert(dataCotacao.cambioPtaxUsd === 5.80, 'Informa taxa PTAX oficial utilizada');
+assert(dataCotacao.ativo.estatisticas7d && dataCotacao.ativo.estatisticas7d.minimoUsd > 0, 'Estatísticas de 7d calculadas a partir da sparkline');
 
 // Testa cache: segunda chamada idêntica não deve chamar o fetch novamente
 const chamadasAntes = chamadasFetch;
